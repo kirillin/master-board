@@ -2,45 +2,18 @@
 #include "driver/uart.h"
 #include "esp_intr_alloc.h"
 #include "freertos/queue.h"
-#include "esp_log.h"
+
 
 #define FLOAT_TO_D16QN(a, n) ((int16_t)((a) * (1 << (n))))
 
 #define UART_NUM UART_NUM_1
-
 #define BUF_SIZE 128
 #define PIN_TXD 32
 #define PIN_RXD 35
 
-#define IMU_PACKET_SIZE 0
-#define EF_PACKET_SIZE 38
-
-// Позиции данных в IMU пакете (0x51, 0x52, 0x53)
-#define IMU_HEADER_POS 0
-
-#define IMU_ACCX_POS 2    // acc_x: bytes 2-3
-#define IMU_ACCY_POS 4    // acc_y: bytes 4-5  
-#define IMU_ACCZ_POS 6    // acc_z: bytes 6-7
-
-#define IMU_GYRX_POS 13    // gyr_x: bytes 2-3 (для пакета 0x52)
-#define IMU_GYRY_POS 15    // gyr_y: bytes 4-5
-#define IMU_GYRZ_POS 17    // gyr_z: bytes 6-7
-
-#define IMU_ROLL_POS 24    // roll: bytes 2-3 (для пакета 0x53)
-#define IMU_PITCH_POS 26   // pitch: bytes 4-5
-#define IMU_YAW_POS 28     // yaw: bytes 6-7
-
-#define INT16_FROM_BYTE_ARRAY(buf, pos) ((int16_t)((buf[pos+1] << 8) | buf[pos]))
-#define SCALED_FLOAT_FROM_BYTE_ARRAY(buf, pos, scale) (((float)INT16_FROM_BYTE_ARRAY(buf, pos)) / 32768.0f * scale)
-
-inline bool check_IMU_CRC(uint8_t* data, size_t length)
-{
-    return true; // заглушка
-}
-
 #define IMU_QN_ACC 11
 #define IMU_QN_GYR 11
-#define IMU_QN_EF 11
+#define IMU_QN_EF 13
 
 union float_int
 {
@@ -69,6 +42,8 @@ static QueueHandle_t uart_mailbox;
 static uint8_t rxbuf[BUF_SIZE];
 static uint8_t rxbuf_imu[BUF_SIZE];
 int intr_cpt = 0;
+
+static intr_handle_t handle_console;
 
 static void IRAM_ATTR uart_intr_handle(void* arg)
 {
@@ -132,11 +107,17 @@ void print_imu()
 int imu_init()
 {
 
-    printf("WIT IMU initializing... \n");
+    printf("Initialising uart for WIT IMU...\n");
 
     uart_mailbox = xQueueCreate(1, 128);
 
-    uart_config_t uart_config = { .baud_rate = 115200, .data_bits = UART_DATA_8_BITS, .parity = UART_PARITY_DISABLE, .stop_bits = UART_STOP_BITS_1, .flow_ctrl = UART_HW_FLOWCTRL_DISABLE };
+    uart_config_t uart_config = { 
+        .baud_rate = 115200, 
+        .data_bits = UART_DATA_8_BITS, 
+        .parity = UART_PARITY_DISABLE, 
+        .stop_bits = UART_STOP_BITS_1, 
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE 
+    };
 
     uart_param_config(UART_NUM, &uart_config);
     uart_set_rx_timeout(UART_NUM, 3);
@@ -147,106 +128,48 @@ int imu_init()
     uart_disable_rx_intr(UART_NUM);
     uart_isr_free(UART_NUM);
 
-    uart_isr_register(UART_NUM, uart_intr_handle, NULL, ESP_INTR_FLAG_IRAM, NULL);
+    uart_isr_register(UART_NUM, uart_intr_handle, NULL, ESP_INTR_FLAG_IRAM, &handle_console);
     uart_enable_rx_intr(UART_NUM);
 
-    // Быстрая проверка соединения
-    const char test_msg[] = "AT\r\n";
-    int bytes_written = uart_write_bytes(UART_NUM, test_msg, strlen(test_msg));
-    vTaskDelay(pdMS_TO_TICKS(10));
-    
-    uint8_t buffer[64];
-    int length = uart_read_bytes(UART_NUM, buffer, sizeof(buffer) - 1, 20 / portTICK_PERIOD_MS);
-    
-    if (bytes_written == strlen(test_msg) && length >= 0) {
-        printf("UART OK: Connection established, sent %d bytes, received %d bytes\n", bytes_written, length);
-
-        while (false) {
-            printf("wit");
-            parse_IMU_data();
-            // print_table(rxbuf_imu, 80);
-            print_imu();
-            vTaskDelay(300/portTICK_PERIOD_MS);
-        }
-
-        return 0;
-    } else {
-        printf("UART ERROR: Connection failed. Sent: %d, Received: %d\n", bytes_written, length);
-        return -1;
+    while (0) //for debug
+    {
+        parse_IMU_data();
+        printf(" intr_cpt:%d\n", intr_cpt);
+        printf("rxbuf:     ");
+        print_table(rxbuf, 80);
+        printf("rxbuf_imu: ");
+        print_table(rxbuf_imu, 80);
+        // printf("rxbuf_ef:  ");
+        // print_table(rxbuf_ef, 80);
+        print_imu();
+        vTaskDelay(10);
     }
+
     return 0;
 }
 
-
-//  0 55
-//  1 51 - acc
-//  2 11 -
-//  3 00
-//  4 e6 -
-//  5 ff
-//  6 ff -
-//  7 07
-//  8 0c
-//  9 0a
-// 10 b8
-// 11 55
-// 12 52 - gyro
-// 13 00 -
-// 14 00
-// 15 00 - 
-// 16 00
-// 17 00 -
-// 18 00
-// 19 0c
-// 20 0a
-// 21 bd
-// 22 55
-// 23 53 - rpy
-// 24 7e -
-// 25 ff
-// 26 af - 
-// 27 ff
-// 28 69 -
-// 29 44
-// 30 e6
-// 31 46
-// 32 ac
-
 inline int parse_IMU_data()
 {
-    xQueuePeek(uart_mailbox, &rxbuf_imu, 0);
+    xQueueReceive(uart_mailbox, &rxbuf_imu, portMAX_DELAY);
 
-    if (!check_IMU_CRC(rxbuf_imu, IMU_PACKET_SIZE)) {
+    switch (rxbuf_imu[1]) {
+    case 0x51:  // Acceleration data
+        imu_data.acc_x.f = ((float)((int16_t)(rxbuf_imu[3] << 8 | rxbuf_imu[2]))) / 32768.0f * 16.0f;
+        imu_data.acc_y.f = ((float)((int16_t)(rxbuf_imu[5] << 8 | rxbuf_imu[4]))) / 32768.0f * 16.0f;
+        imu_data.acc_z.f = ((float)((int16_t)(rxbuf_imu[7] << 8 | rxbuf_imu[6]))) / 32768.0f * 16.0f;
+        break;
+    case 0x52:  // Gyroscope data
+        imu_data.gyr_x.f = ((float)((int16_t)(rxbuf_imu[3] << 8 | rxbuf_imu[2]))) / 32768.0f * 2000.0f;
+        imu_data.gyr_y.f = ((float)((int16_t)(rxbuf_imu[5] << 8 | rxbuf_imu[4]))) / 32768.0f * 2000.0f;
+        imu_data.gyr_z.f = ((float)((int16_t)(rxbuf_imu[7] << 8 | rxbuf_imu[6]))) / 32768.0f * 2000.0f;
+        break;
+    case 0x53:  // Orientation data
+        imu_data.roll.f  = ((float)((int16_t)(rxbuf_imu[3] << 8 | rxbuf_imu[2]))) / 32768.0f * 180.0f;
+        imu_data.pitch.f = ((float)((int16_t)(rxbuf_imu[5] << 8 | rxbuf_imu[4]))) / 32768.0f * 180.0f;
+        imu_data.yaw.f   = ((float)((int16_t)(rxbuf_imu[7] << 8 | rxbuf_imu[6]))) / 32768.0f * 180.0f;
+        break;
+    default:
         return -1;
-    }
-
-    // printf("***\n");
-    // for (int i = 0; i < 33; ++i) {
-    //     printf("%02x\n", rxbuf_imu[i]);
-    // }
-    // printf("***\n");
-
-    if (rxbuf_imu[1] == 0x51) {
-        imu_data.acc_x.f = SCALED_FLOAT_FROM_BYTE_ARRAY(rxbuf_imu, 2, 16.0f);
-        imu_data.acc_y.f = SCALED_FLOAT_FROM_BYTE_ARRAY(rxbuf_imu, 4, 16.0f);
-        imu_data.acc_z.f = SCALED_FLOAT_FROM_BYTE_ARRAY(rxbuf_imu, 6, 16.0f);
-        //printf("acc: %f\n", imu_data.acc_z.f);
-
-        // printf("\t1: %02x\n", rxbuf_imu[1]);
-        // printf("\t2: %02x\n", rxbuf_imu[12]);
-        // printf("\t3: %02x\n", rxbuf_imu[23]);
-        
-        if (rxbuf_imu[12] == 0x52) {
-            imu_data.gyr_x.f = SCALED_FLOAT_FROM_BYTE_ARRAY(rxbuf_imu, 13, 2000.0f);
-            imu_data.gyr_y.f = SCALED_FLOAT_FROM_BYTE_ARRAY(rxbuf_imu, 15, 2000.0f);
-            imu_data.gyr_z.f = SCALED_FLOAT_FROM_BYTE_ARRAY(rxbuf_imu, 17, 2000.0f);
-        }    
-    
-        if (rxbuf_imu[23] == 0x53) {
-            imu_data.roll.f = SCALED_FLOAT_FROM_BYTE_ARRAY(rxbuf_imu, 24, 180.0f);
-            imu_data.pitch.f = SCALED_FLOAT_FROM_BYTE_ARRAY(rxbuf_imu, 26, 180.0f);
-            imu_data.yaw.f = SCALED_FLOAT_FROM_BYTE_ARRAY(rxbuf_imu, 28, 180.0f);
-        }
     }
 
     return 0;

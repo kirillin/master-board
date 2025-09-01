@@ -251,7 +251,7 @@ static void periodic_timer_callback(void *arg)
 
             printf("[%d] sent : %ld, ok : %ld, ratio : %.02f\n", i, spi_count, spi_ok[i], 100. * spi_ok[i] / spi_count);
         }
-        //print_imu();
+        print_imu();
         printf("\nlast CMD packet:\n");
         print_packet(spi_tx_packet[2], SPI_TOTAL_LEN * 2);
     }
@@ -385,6 +385,7 @@ static void periodic_timer_callback(void *arg)
     wifi_eth_tx_data.imu.linear_acceleration[0] = get_linacc_x_in_D16QN();
     wifi_eth_tx_data.imu.linear_acceleration[1] = get_linacc_y_in_D16QN();
     wifi_eth_tx_data.imu.linear_acceleration[2] = get_linacc_z_in_D16QN();
+
 
     /* Sends message to PC */
     switch (current_state)
