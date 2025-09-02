@@ -365,9 +365,9 @@ void MasterBoardInterface::ParseSensorData()
   /*Read IMU data*/
   for (int i = 0; i < 3; i++)
   {
-    imu_data.accelerometer[i] = static_cast<float>(9.80665) * D16QN_TO_FLOAT(sensor_packet.imu.accelerometer[i], IMU_QN_ACC);
-    imu_data.gyroscope[i] = D16QN_TO_FLOAT(sensor_packet.imu.gyroscope[i], IMU_QN_GYR);
-    imu_data.attitude[i] = D16QN_TO_FLOAT(sensor_packet.imu.attitude[i], IMU_QN_EF);
+    imu_data.accelerometer[i] = static_cast<float>(9.80665) * D16QN_TO_FLOAT(sensor_packet.imu.accelerometer[i], IMU_QN_ACC) * 16.0f;
+    imu_data.gyroscope[i] = D16QN_TO_FLOAT(sensor_packet.imu.gyroscope[i], IMU_QN_GYR) * 2000.0;
+    imu_data.attitude[i] = D16QN_TO_FLOAT(sensor_packet.imu.attitude[i], IMU_QN_GYR) * 180.0f; // it's roll pitch yaw
     imu_data.linear_acceleration[i] = D16QN_TO_FLOAT(sensor_packet.imu.linear_acceleration[i], IMU_QN_ACC);
   }
 

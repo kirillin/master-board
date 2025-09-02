@@ -45,9 +45,9 @@
 #define UD_QN_KP   11
 #define UD_QN_KD   10
 
-#define IMU_QN_ACC 11
-#define IMU_QN_GYR 11
-#define IMU_QN_EF 13
+#define IMU_QN_ACC 15
+#define IMU_QN_GYR 15
+#define IMU_QN_EF 15
 
 /* Position of the values in the sensor packet */
 #define UD_SENSOR_STATUS 0
